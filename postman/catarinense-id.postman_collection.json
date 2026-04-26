@@ -123,6 +123,48 @@
       "response": []
     },
     {
+      "name": "Logout",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status 200\", function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.collectionVariables.unset(\"sessionUuid\");"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{sessionUuid}}"
+          },
+          {
+            "key": "X-App-Key",
+            "value": "{{appKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/logout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "logout"
+          ]
+        },
+        "description": "Finaliza a sessao autenticada atual."
+      },
+      "response": []
+    },
+    {
       "name": "Admin - Create User",
       "request": {
         "method": "POST",

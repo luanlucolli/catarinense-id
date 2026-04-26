@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/luanlucolli/auth-catarinense/internal/database"
+	"github.com/luanlucolli/auth-catarinense/internal/middleware"
 	"github.com/luanlucolli/auth-catarinense/internal/models"
 )
 
@@ -95,6 +96,33 @@ func (h *Handler) Login(c *gin.Context) {
 
 func (h *Handler) Validate(c *gin.Context) {
 	c.JSON(http.StatusOK, models.ValidateResponse{Valid: true})
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	value, exists := c.Get(middleware.ContextSessionKey)
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "contexto de autenticação ausente"})
+		return
+	}
+
+	session, ok := value.(models.Session)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "contexto de autenticação inválido"})
+		return
+	}
+
+	if err := h.store.DeleteSessionByID(c.Request.Context(), session.ID); err != nil {
+		if errors.Is(err, database.ErrSessionNotFound) {
+			c.JSON(http.StatusOK, gin.H{"message": "logout realizado com sucesso"})
+			return
+		}
+
+		log.Printf("erro ao remover sessão id=%d: %v", session.ID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao finalizar sessão"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "logout realizado com sucesso"})
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {

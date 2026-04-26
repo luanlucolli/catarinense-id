@@ -24,6 +24,7 @@ const (
 	stmtGetActiveAppByAPIKey          = "get_active_app_by_api_key"
 	stmtUpsertSession                 = "upsert_session"
 	stmtGetAuthContextBySessionAndApp = "get_auth_context_by_session_and_app"
+	stmtDeleteSessionByID             = "delete_session_by_id"
 	stmtCreateUser                    = "create_user"
 )
 
@@ -32,6 +33,7 @@ type UserStore interface {
 	GetActiveAppByAPIKey(ctx context.Context, apiKey string) (models.App, error)
 	UpsertSession(ctx context.Context, params UpsertSessionParams) (models.Session, error)
 	GetAuthContextBySessionAndAppKey(ctx context.Context, sessionUUID, apiKey string) (models.AuthContext, error)
+	DeleteSessionByID(ctx context.Context, sessionID int32) error
 	CreateUser(ctx context.Context, params CreateUserParams) (models.User, error)
 }
 
@@ -161,6 +163,25 @@ func (r *Repository) GetAuthContextBySessionAndAppKey(ctx context.Context, sessi
 	return authContext, nil
 }
 
+func (r *Repository) DeleteSessionByID(ctx context.Context, sessionID int32) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	result, err := conn.Exec(ctx, stmtDeleteSessionByID, sessionID)
+	if err != nil {
+		return fmt.Errorf("delete session by id: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return ErrSessionNotFound
+	}
+
+	return nil
+}
+
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (models.User, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
@@ -258,6 +279,10 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 				m.session_created_at
 			FROM matched m
 			JOIN touched t ON t.id = m.session_id
+		`,
+		stmtDeleteSessionByID: `
+			DELETE FROM sessions
+			WHERE id = $1
 		`,
 		stmtCreateUser: `
 			INSERT INTO users (username, password_hash, is_admin)

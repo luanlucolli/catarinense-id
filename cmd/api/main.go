@@ -145,6 +145,7 @@ func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddlewar
 	protected := router.Group("/")
 	protected.Use(authMiddleware.RequireAuth())
 	protected.GET("/validate", handler.Validate)
+	protected.POST("/logout", handler.Logout)
 
 	admin := router.Group("/admin")
 	admin.Use(authMiddleware.RequireAuth(), authMiddleware.RequireAdmin())
