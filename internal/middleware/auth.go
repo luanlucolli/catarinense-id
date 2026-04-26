@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -12,7 +13,11 @@ import (
 	"github.com/luanlucolli/auth-catarinense/internal/models"
 )
 
-const ContextUserKey = "authenticated_user"
+const (
+	ContextUserKey    = "authenticated_user"
+	ContextAppKey     = "authenticated_app"
+	ContextSessionKey = "authenticated_session"
+)
 
 type AuthMiddleware struct {
 	store database.UserStore
@@ -30,18 +35,27 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		user, err := m.store.GetActiveUserBySessionUUID(c.Request.Context(), sessionUUID)
+		appKey, err := extractAppKey(c.GetHeader("X-App-Key"))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "app inválido ou inativo"})
+			return
+		}
+
+		authContext, err := m.store.GetAuthContextBySessionAndAppKey(c.Request.Context(), sessionUUID, appKey)
 		if err != nil {
 			if errors.Is(err, database.ErrSessionNotFound) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "sessão inválida ou expirada"})
 				return
 			}
 
+			log.Printf("erro ao validar sessão por app: %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao validar sessão"})
 			return
 		}
 
-		c.Set(ContextUserKey, user)
+		c.Set(ContextUserKey, authContext.User)
+		c.Set(ContextAppKey, authContext.App)
+		c.Set(ContextSessionKey, authContext.Session)
 		c.Next()
 	}
 }
@@ -85,4 +99,13 @@ func extractBearerToken(headerValue string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func extractAppKey(headerValue string) (string, error) {
+	appKey := strings.TrimSpace(headerValue)
+	if appKey == "" {
+		return "", errors.New("empty app key")
+	}
+
+	return appKey, nil
 }

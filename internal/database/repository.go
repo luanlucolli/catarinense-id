@@ -15,21 +15,30 @@ import (
 var (
 	ErrUserNotFound    = errors.New("user not found")
 	ErrDuplicateUser   = errors.New("duplicate user")
+	ErrAppNotFound     = errors.New("app not found")
 	ErrSessionNotFound = errors.New("session not found")
 )
 
 const (
-	stmtGetUserByUsername      = "get_user_by_username"
-	stmtUpdateUserSessionUUID  = "update_user_session_uuid"
-	stmtGetActiveUserBySession = "get_active_user_by_session_uuid"
-	stmtCreateUser             = "create_user"
+	stmtGetUserByUsername             = "get_user_by_username"
+	stmtGetActiveAppByAPIKey          = "get_active_app_by_api_key"
+	stmtUpsertSession                 = "upsert_session"
+	stmtGetAuthContextBySessionAndApp = "get_auth_context_by_session_and_app"
+	stmtCreateUser                    = "create_user"
 )
 
 type UserStore interface {
 	GetUserByUsername(ctx context.Context, username string) (models.User, error)
-	UpdateSessionUUID(ctx context.Context, userID int32, sessionUUID string) error
-	GetActiveUserBySessionUUID(ctx context.Context, sessionUUID string) (models.User, error)
+	GetActiveAppByAPIKey(ctx context.Context, apiKey string) (models.App, error)
+	UpsertSession(ctx context.Context, params UpsertSessionParams) (models.Session, error)
+	GetAuthContextBySessionAndAppKey(ctx context.Context, sessionUUID, apiKey string) (models.AuthContext, error)
 	CreateUser(ctx context.Context, params CreateUserParams) (models.User, error)
+}
+
+type UpsertSessionParams struct {
+	UserID      int32
+	AppID       int32
+	SessionUUID string
 }
 
 type CreateUserParams struct {
@@ -93,42 +102,63 @@ func (r *Repository) GetUserByUsername(ctx context.Context, username string) (mo
 	return user, nil
 }
 
-func (r *Repository) UpdateSessionUUID(ctx context.Context, userID int32, sessionUUID string) error {
+func (r *Repository) GetActiveAppByAPIKey(ctx context.Context, apiKey string) (models.App, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("acquire connection: %w", err)
+		return models.App{}, fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
-	commandTag, err := conn.Exec(ctx, stmtUpdateUserSessionUUID, sessionUUID, userID)
-	if err != nil {
-		return fmt.Errorf("update session uuid: %w", err)
-	}
-
-	if commandTag.RowsAffected() != 1 {
-		return ErrUserNotFound
-	}
-
-	return nil
-}
-
-func (r *Repository) GetActiveUserBySessionUUID(ctx context.Context, sessionUUID string) (models.User, error) {
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return models.User{}, fmt.Errorf("acquire connection: %w", err)
-	}
-	defer conn.Release()
-
-	user, err := scanUser(conn.QueryRow(ctx, stmtGetActiveUserBySession, sessionUUID))
+	app, err := scanApp(conn.QueryRow(ctx, stmtGetActiveAppByAPIKey, apiKey))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return models.User{}, ErrSessionNotFound
+			return models.App{}, ErrAppNotFound
 		}
 
-		return models.User{}, fmt.Errorf("query active user by session: %w", err)
+		return models.App{}, fmt.Errorf("query active app by api key: %w", err)
 	}
 
-	return user, nil
+	return app, nil
+}
+
+func (r *Repository) UpsertSession(ctx context.Context, params UpsertSessionParams) (models.Session, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return models.Session{}, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	session, err := scanSession(conn.QueryRow(
+		ctx,
+		stmtUpsertSession,
+		params.UserID,
+		params.AppID,
+		params.SessionUUID,
+	))
+	if err != nil {
+		return models.Session{}, fmt.Errorf("upsert session: %w", err)
+	}
+
+	return session, nil
+}
+
+func (r *Repository) GetAuthContextBySessionAndAppKey(ctx context.Context, sessionUUID, apiKey string) (models.AuthContext, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return models.AuthContext{}, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	authContext, err := scanAuthContext(conn.QueryRow(ctx, stmtGetAuthContextBySessionAndApp, sessionUUID, apiKey))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.AuthContext{}, ErrSessionNotFound
+		}
+
+		return models.AuthContext{}, fmt.Errorf("query auth context by session and app: %w", err)
+	}
+
+	return authContext, nil
 }
 
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (models.User, error) {
@@ -154,25 +184,85 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (m
 func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 	statements := map[string]string{
 		stmtGetUserByUsername: `
-			SELECT id, username, password_hash, is_admin, active, session_uuid, created_at
+			SELECT id, username, password_hash, is_admin, active, created_at
 			FROM users
 			WHERE username = $1
 		`,
-		stmtUpdateUserSessionUUID: `
-			UPDATE users
-			SET session_uuid = $1
-			WHERE id = $2
-		`,
-		stmtGetActiveUserBySession: `
-			SELECT id, username, password_hash, is_admin, active, session_uuid, created_at
-			FROM users
-			WHERE session_uuid = $1
+		stmtGetActiveAppByAPIKey: `
+			SELECT id, name, api_key, active, created_at
+			FROM apps
+			WHERE api_key = $1
 			  AND active = true
+		`,
+		stmtUpsertSession: `
+			INSERT INTO sessions (user_id, app_id, session_uuid, last_active)
+			VALUES ($1, $2, $3::uuid, now())
+			ON CONFLICT (user_id, app_id)
+			DO UPDATE SET
+				session_uuid = EXCLUDED.session_uuid,
+				last_active = now(),
+				created_at = now()
+			RETURNING id, user_id, app_id, session_uuid::text, last_active, created_at
+		`,
+		stmtGetAuthContextBySessionAndApp: `
+			WITH matched AS (
+				SELECT
+					u.id AS user_id,
+					u.username,
+					u.password_hash,
+					u.is_admin,
+					u.active AS user_active,
+					u.created_at AS user_created_at,
+					a.id AS app_id,
+					a.name AS app_name,
+					a.api_key,
+					a.active AS app_active,
+					a.created_at AS app_created_at,
+					s.id AS session_id,
+					s.user_id AS session_user_id,
+					s.app_id AS session_app_id,
+					s.session_uuid::text AS session_uuid,
+					s.created_at AS session_created_at
+				FROM sessions s
+				JOIN users u ON u.id = s.user_id
+				JOIN apps a ON a.id = s.app_id
+				WHERE s.session_uuid = $1::uuid
+				  AND a.api_key = $2
+				  AND u.active = true
+				  AND a.active = true
+			),
+			touched AS (
+				UPDATE sessions s
+				SET last_active = now()
+				FROM matched m
+				WHERE s.id = m.session_id
+				RETURNING s.id, s.last_active
+			)
+			SELECT
+				m.user_id,
+				m.username,
+				m.password_hash,
+				m.is_admin,
+				m.user_active,
+				m.user_created_at,
+				m.app_id,
+				m.app_name,
+				m.api_key,
+				m.app_active,
+				m.app_created_at,
+				m.session_id,
+				m.session_user_id,
+				m.session_app_id,
+				m.session_uuid,
+				t.last_active,
+				m.session_created_at
+			FROM matched m
+			JOIN touched t ON t.id = m.session_id
 		`,
 		stmtCreateUser: `
 			INSERT INTO users (username, password_hash, is_admin)
 			VALUES ($1, $2, $3)
-			RETURNING id, username, password_hash, is_admin, active, session_uuid, created_at
+			RETURNING id, username, password_hash, is_admin, active, created_at
 		`,
 	}
 
@@ -194,11 +284,71 @@ func scanUser(row pgx.Row) (models.User, error) {
 		&user.PasswordHash,
 		&user.IsAdmin,
 		&user.Active,
-		&user.SessionUUID,
 		&user.CreatedAt,
 	); err != nil {
 		return models.User{}, err
 	}
 
 	return user, nil
+}
+
+func scanApp(row pgx.Row) (models.App, error) {
+	var app models.App
+
+	if err := row.Scan(
+		&app.ID,
+		&app.Name,
+		&app.APIKey,
+		&app.Active,
+		&app.CreatedAt,
+	); err != nil {
+		return models.App{}, err
+	}
+
+	return app, nil
+}
+
+func scanSession(row pgx.Row) (models.Session, error) {
+	var session models.Session
+
+	if err := row.Scan(
+		&session.ID,
+		&session.UserID,
+		&session.AppID,
+		&session.SessionUUID,
+		&session.LastActive,
+		&session.CreatedAt,
+	); err != nil {
+		return models.Session{}, err
+	}
+
+	return session, nil
+}
+
+func scanAuthContext(row pgx.Row) (models.AuthContext, error) {
+	var authContext models.AuthContext
+
+	if err := row.Scan(
+		&authContext.User.ID,
+		&authContext.User.Username,
+		&authContext.User.PasswordHash,
+		&authContext.User.IsAdmin,
+		&authContext.User.Active,
+		&authContext.User.CreatedAt,
+		&authContext.App.ID,
+		&authContext.App.Name,
+		&authContext.App.APIKey,
+		&authContext.App.Active,
+		&authContext.App.CreatedAt,
+		&authContext.Session.ID,
+		&authContext.Session.UserID,
+		&authContext.Session.AppID,
+		&authContext.Session.SessionUUID,
+		&authContext.Session.LastActive,
+		&authContext.Session.CreatedAt,
+	); err != nil {
+		return models.AuthContext{}, err
+	}
+
+	return authContext, nil
 }

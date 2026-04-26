@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -28,6 +29,24 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	appKey := strings.TrimSpace(c.GetHeader("X-App-Key"))
+	if appKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "app inválido ou inativo"})
+		return
+	}
+
+	app, err := h.store.GetActiveAppByAPIKey(c.Request.Context(), appKey)
+	if err != nil {
+		if errors.Is(err, database.ErrAppNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "app inválido ou inativo"})
+			return
+		}
+
+		log.Printf("erro ao buscar app ativo por api key: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao validar app"})
+		return
+	}
+
 	username := strings.TrimSpace(request.Username)
 	if username == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username é obrigatório"})
@@ -41,6 +60,7 @@ func (h *Handler) Login(c *gin.Context) {
 			return
 		}
 
+		log.Printf("erro ao buscar usuário %q: %v", username, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao buscar usuário"})
 		return
 	}
@@ -56,13 +76,19 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	sessionUUID := uuid.NewString()
-	if err := h.store.UpdateSessionUUID(c.Request.Context(), user.ID, sessionUUID); err != nil {
+	session, err := h.store.UpsertSession(c.Request.Context(), database.UpsertSessionParams{
+		UserID:      user.ID,
+		AppID:       app.ID,
+		SessionUUID: sessionUUID,
+	})
+	if err != nil {
+		log.Printf("erro ao criar sessão para user_id=%d app_id=%d: %v", user.ID, app.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao atualizar sessão"})
 		return
 	}
 
 	c.JSON(http.StatusOK, models.LoginResponse{
-		SessionUUID: sessionUUID,
+		SessionUUID: session.SessionUUID,
 		IsAdmin:     user.IsAdmin,
 	})
 }
@@ -86,6 +112,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("erro ao gerar hash da senha para username=%q: %v", username, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao gerar hash da senha"})
 		return
 	}
@@ -101,6 +128,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 			return
 		}
 
+		log.Printf("erro ao criar usuário %q: %v", username, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao criar usuário"})
 		return
 	}
