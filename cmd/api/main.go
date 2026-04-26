@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,9 +43,30 @@ func main() {
 
 	handler := handlers.NewHandler(repo)
 	authMiddleware := middleware.NewAuthMiddleware(repo)
+	globalRateLimit := loadRateLimitConfig(
+		"RATE_LIMIT_REQUESTS",
+		"RATE_LIMIT_WINDOW",
+		"RATE_LIMIT_BURST",
+		middleware.RateLimitConfig{
+			Requests: 120,
+			Window:   time.Minute,
+			Burst:    20,
+		},
+	)
+	loginRateLimit := loadRateLimitConfig(
+		"LOGIN_RATE_LIMIT_REQUESTS",
+		"LOGIN_RATE_LIMIT_WINDOW",
+		"LOGIN_RATE_LIMIT_BURST",
+		middleware.RateLimitConfig{
+			Requests: 10,
+			Window:   time.Minute,
+			Burst:    5,
+		},
+	)
 
 	router := gin.Default()
-	registerRoutes(router, handler, authMiddleware)
+	router.Use(middleware.NewRateLimiter(globalRateLimit))
+	registerRoutes(router, handler, authMiddleware, middleware.NewRateLimiter(loginRateLimit))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -113,12 +135,12 @@ func findEnvFile() (string, error) {
 	}
 }
 
-func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddleware *middleware.AuthMiddleware) {
+func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddleware *middleware.AuthMiddleware, loginRateLimiter gin.HandlerFunc) {
 	router.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "Auth Catarinense online"})
 	})
 
-	router.POST("/login", handler.Login)
+	router.POST("/login", loginRateLimiter, handler.Login)
 
 	protected := router.Group("/")
 	protected.Use(authMiddleware.RequireAuth())
@@ -127,4 +149,47 @@ func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddlewar
 	admin := router.Group("/admin")
 	admin.Use(authMiddleware.RequireAuth(), authMiddleware.RequireAdmin())
 	admin.POST("/users", handler.CreateUser)
+}
+
+func loadRateLimitConfig(
+	requestsEnv string,
+	windowEnv string,
+	burstEnv string,
+	defaults middleware.RateLimitConfig,
+) middleware.RateLimitConfig {
+	return middleware.RateLimitConfig{
+		Requests: parsePositiveIntEnv(requestsEnv, defaults.Requests),
+		Window:   parsePositiveDurationEnv(windowEnv, defaults.Window),
+		Burst:    parsePositiveIntEnv(burstEnv, defaults.Burst),
+	}
+}
+
+func parsePositiveIntEnv(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		log.Printf("aviso: %s inválida (%q); usando %d", name, value, fallback)
+		return fallback
+	}
+
+	return parsed
+}
+
+func parsePositiveDurationEnv(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		log.Printf("aviso: %s inválida (%q); usando %s", name, value, fallback)
+		return fallback
+	}
+
+	return parsed
 }
