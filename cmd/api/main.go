@@ -159,7 +159,6 @@ func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddlewar
 
 	protected := router.Group("/")
 	protected.Use(authMiddleware.RequireAuth())
-	protected.GET("/validate", handler.Validate)
 	protected.GET("/me", handler.Me)
 	protected.POST("/logout", handler.Logout)
 

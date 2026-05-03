@@ -39,7 +39,35 @@
         },
         "description": "Health check da API."
       },
-      "response": []
+      "response": [
+        {
+          "name": "200 OK - API online",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ping",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ping"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"message\": \"Auth Catarinense online\"\n}"
+        }
+      ]
     },
     {
       "name": "Login",
@@ -93,34 +121,88 @@
         },
         "description": "Autentica um usuário com base em email, password e X-App-Key."
       },
-      "response": []
-    },
-    {
-      "name": "Validate",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{sessionUuid}}"
+      "response": [
+        {
+          "name": "200 OK - Login realizado",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@catarinense.local\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
           },
-          {
-            "key": "X-App-Key",
-            "value": "{{appKey}}"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/validate",
-          "host": [
-            "{{baseUrl}}"
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
           ],
-          "path": [
-            "validate"
-          ]
+          "cookie": [],
+          "body": "{\n  \"session_uuid\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"is_admin\": true\n}"
         },
-        "description": "Valida a sessao usando Authorization Bearer e X-App-Key."
-      },
-      "response": []
+        {
+          "name": "401 Unauthorized - Credenciais inválidas",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@catarinense.local\",\n  \"password\": \"senha-incorreta\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
+          },
+          "status": "Unauthorized",
+          "code": 401,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"credenciais inválidas\"\n}"
+        }
+      ]
     },
     {
       "name": "Get Current User (Me)",
@@ -145,9 +227,82 @@
             "me"
           ]
         },
-        "description": "Retorna os dados do usuario autenticado."
+        "description": "Valida a sessao usando Authorization Bearer e X-App-Key e retorna os dados do usuario autenticado."
       },
-      "response": []
+      "response": [
+        {
+          "name": "200 OK - Sessão válida",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sessionUuid}}"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "me"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"id\": 1,\n  \"email\": \"admin@catarinense.local\",\n  \"is_admin\": true,\n  \"active\": true,\n  \"created_at\": \"2026-05-03T12:00:00Z\"\n}"
+        },
+        {
+          "name": "401 Unauthorized - Sessão inválida ou expirada",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer 550e8400-e29b-41d4-a716-446655440001"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "me"
+              ]
+            }
+          },
+          "status": "Unauthorized",
+          "code": 401,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"sessão inválida ou expirada\"\n}"
+        }
+      ]
     },
     {
       "name": "Logout",
@@ -189,7 +344,44 @@
         },
         "description": "Finaliza a sessao autenticada atual."
       },
-      "response": []
+      "response": [
+        {
+          "name": "200 OK - Logout realizado",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sessionUuid}}"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "logout"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"message\": \"logout realizado com sucesso\"\n}"
+        }
+      ]
     },
     {
       "name": "Admin - Create User",
@@ -230,7 +422,143 @@
         },
         "description": "Cria um novo usuario. Requer sessao valida de um usuario admin."
       },
-      "response": []
+      "response": [
+        {
+          "name": "201 Created - Usuário criado",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sessionUuid}}"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"novo.usuario@catarinense.local\",\n  \"password\": \"123456\",\n  \"is_admin\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ]
+            }
+          },
+          "status": "Created",
+          "code": 201,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"id\": 2,\n  \"email\": \"novo.usuario@catarinense.local\",\n  \"is_admin\": false,\n  \"active\": true\n}"
+        },
+        {
+          "name": "403 Forbidden - Acesso restrito",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sessionUuid}}"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"novo.usuario@catarinense.local\",\n  \"password\": \"123456\",\n  \"is_admin\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ]
+            }
+          },
+          "status": "Forbidden",
+          "code": 403,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"acesso restrito a administradores\"\n}"
+        },
+        {
+          "name": "409 Conflict - Email já cadastrado",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sessionUuid}}"
+              },
+              {
+                "key": "X-App-Key",
+                "value": "{{appKey}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@catarinense.local\",\n  \"password\": \"123456\",\n  \"is_admin\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ]
+            }
+          },
+          "status": "Conflict",
+          "code": 409,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"error\": \"email já cadastrado\"\n}"
+        }
+      ]
     }
   ]
 }

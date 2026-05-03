@@ -57,10 +57,6 @@ type CreateUserResponse struct {
 	Active  bool   `json:"active"`
 }
 
-type ValidateResponse struct {
-	Valid bool `json:"valid"`
-}
-
 type UserResponse struct {
 	ID        int32     `json:"id"`
 	Email     string    `json:"email"`

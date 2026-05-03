@@ -94,10 +94,6 @@ func (h *Handler) Login(c *gin.Context) {
 	})
 }
 
-func (h *Handler) Validate(c *gin.Context) {
-	c.JSON(http.StatusOK, models.ValidateResponse{Valid: true})
-}
-
 func (h *Handler) Me(c *gin.Context) {
 	value, exists := c.Get(middleware.ContextUserKey)
 	if !exists {
