@@ -25,7 +25,7 @@ WORKDIR /root/
 # Copia apenas o binário compilado do estágio anterior
 COPY --from=builder /app/main .
 
-# O Koyeb vai injetar a porta, mas deixamos a 8000 como padrão
+# O Render vai injetar a porta, mas deixamos a 8000 como padrão
 EXPOSE 8000
 
 # Comando para rodar a aplicação

@@ -37,7 +37,6 @@ const (
 	defaultDBMaxConnLifetimeJitter       = 5 * time.Minute
 	defaultDBHealthCheckPeriod           = time.Minute
 	defaultDBConnectTimeout              = 10 * time.Second
-	defaultSessionTouchInterval          = 5 * time.Minute
 )
 
 type UserStore interface {
@@ -62,8 +61,7 @@ type CreateUserParams struct {
 }
 
 type Repository struct {
-	pool                 *pgxpool.Pool
-	sessionTouchInterval time.Duration
+	pool *pgxpool.Pool
 }
 
 type PoolStats struct {
@@ -101,8 +99,7 @@ func NewRepository(ctx context.Context, databaseURL string) (*Repository, error)
 	}
 
 	repo := &Repository{
-		pool:                 pool,
-		sessionTouchInterval: defaultSessionTouchInterval,
+		pool: pool,
 	}
 	if err := repo.Ping(ctx); err != nil {
 		pool.Close()
@@ -204,7 +201,6 @@ func (r *Repository) GetAuthContextBySessionAndAppKey(ctx context.Context, sessi
 			stmtGetAuthContextBySessionAndApp,
 			sessionUUID,
 			apiKey,
-			int32(max(1, int(r.sessionTouchInterval/time.Second))),
 		),
 	)
 	if err != nil {
@@ -313,7 +309,7 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 					SET last_active = now()
 					FROM matched m
 					WHERE s.id = m.session_id
-					  AND s.last_active < now() - make_interval(secs => $3::int)
+					  AND s.last_active < now() - interval '5 minutes'
 					RETURNING s.id, s.last_active
 				)
 				SELECT

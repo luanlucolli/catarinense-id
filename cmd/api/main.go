@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,9 +30,10 @@ func main() {
 
 	ginMode := os.Getenv("GIN_MODE")
 	if ginMode == "" {
-		ginMode = gin.DebugMode
+		ginMode = gin.ReleaseMode
 	}
 	gin.SetMode(ginMode)
+	log.Printf("GIN mode: %s", gin.Mode())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -66,6 +68,9 @@ func main() {
 	)
 
 	router := gin.Default()
+	if err := router.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("falha ao configurar trusted proxies: %v", err)
+	}
 	router.Use(middleware.NewRateLimiter(globalRateLimit))
 	registerRoutes(router, handler, authMiddleware, middleware.NewRateLimiter(loginRateLimit))
 
@@ -74,9 +79,18 @@ func main() {
 		port = "8000"
 	}
 
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
 	log.Printf("API pronta para receber conexões em :%s", port)
 
-	if err := router.Run(":" + port); err != nil {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("falha ao iniciar servidor: %v", err)
 	}
 }
