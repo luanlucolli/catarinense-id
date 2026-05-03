@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,12 +33,10 @@ func main() {
 	}
 	gin.SetMode(ginMode)
 
-	startupTimeout := parsePositiveDurationEnv("DATABASE_STARTUP_TIMEOUT", 40*time.Second)
-
-	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 
-	repo, err := database.NewRepository(ctx, databaseURL)
+	repo, err := openRepositoryWithRetry(ctx, databaseURL)
 	if err != nil {
 		log.Fatalf("falha ao inicializar banco: %v", err)
 	}
@@ -153,6 +152,60 @@ func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddlewar
 	admin := router.Group("/admin")
 	admin.Use(authMiddleware.RequireAuth(), authMiddleware.RequireAdmin())
 	admin.POST("/users", handler.CreateUser)
+}
+
+func openRepositoryWithRetry(ctx context.Context, databaseURL string) (*database.Repository, error) {
+	const (
+		maxAttempts    = 4
+		baseBackoff    = time.Second
+		perAttemptTime = 12 * time.Second
+	)
+
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return nil, fmt.Errorf("timeout ao inicializar banco após %d tentativa(s): %w", attempt-1, lastErr)
+			}
+
+			return nil, fmt.Errorf("timeout ao inicializar banco: %w", err)
+		}
+
+		attemptCtx, cancel := context.WithTimeout(ctx, min(perAttemptTime, time.Until(contextDeadlineOrNow(ctx))))
+		repo, err := database.NewRepository(attemptCtx, databaseURL)
+		cancel()
+		if err == nil {
+			return repo, nil
+		}
+
+		lastErr = err
+		if attempt == maxAttempts {
+			break
+		}
+
+		backoff := time.Duration(attempt) * baseBackoff
+		log.Printf("aviso: tentativa %d/%d de inicializar banco falhou: %v", attempt, maxAttempts, err)
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("timeout ao inicializar banco após %d tentativa(s): %w", attempt, lastErr)
+		case <-timer.C:
+		}
+	}
+
+	return nil, fmt.Errorf("falha ao inicializar banco após %d tentativa(s): %w", maxAttempts, lastErr)
+}
+
+func contextDeadlineOrNow(ctx context.Context) time.Time {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return time.Now().Add(12 * time.Second)
+	}
+
+	return deadline
 }
 
 func loadRateLimitConfig(

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -28,6 +29,17 @@ const (
 	stmtCreateUser                    = "create_user"
 )
 
+const (
+	defaultDBMaxConns              int32 = 4
+	defaultDBMinConns              int32 = 0
+	defaultDBMaxConnIdleTime             = 5 * time.Minute
+	defaultDBMaxConnLifetime             = 30 * time.Minute
+	defaultDBMaxConnLifetimeJitter       = 5 * time.Minute
+	defaultDBHealthCheckPeriod           = time.Minute
+	defaultDBConnectTimeout              = 10 * time.Second
+	defaultSessionTouchInterval          = 5 * time.Minute
+)
+
 type UserStore interface {
 	GetUserByUsername(ctx context.Context, username string) (models.User, error)
 	GetActiveAppByAPIKey(ctx context.Context, apiKey string) (models.App, error)
@@ -50,7 +62,16 @@ type CreateUserParams struct {
 }
 
 type Repository struct {
-	pool *pgxpool.Pool
+	pool                 *pgxpool.Pool
+	sessionTouchInterval time.Duration
+}
+
+type PoolStats struct {
+	MaxConns          int32
+	TotalConns        int32
+	AcquiredConns     int32
+	IdleConns         int32
+	EmptyAcquireCount int64
 }
 
 func NewRepository(ctx context.Context, databaseURL string) (*Repository, error) {
@@ -58,6 +79,17 @@ func NewRepository(ctx context.Context, databaseURL string) (*Repository, error)
 	if err != nil {
 		return nil, fmt.Errorf("parse database config: %w", err)
 	}
+
+	config.MaxConns = defaultDBMaxConns
+	config.MinConns = defaultDBMinConns
+	if config.MinConns > config.MaxConns {
+		config.MinConns = defaultDBMinConns
+	}
+	config.MaxConnIdleTime = defaultDBMaxConnIdleTime
+	config.MaxConnLifetime = defaultDBMaxConnLifetime
+	config.MaxConnLifetimeJitter = defaultDBMaxConnLifetimeJitter
+	config.HealthCheckPeriod = defaultDBHealthCheckPeriod
+	config.ConnConfig.ConnectTimeout = defaultDBConnectTimeout
 
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		return prepareStatements(ctx, conn)
@@ -68,7 +100,10 @@ func NewRepository(ctx context.Context, databaseURL string) (*Repository, error)
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
 
-	repo := &Repository{pool: pool}
+	repo := &Repository{
+		pool:                 pool,
+		sessionTouchInterval: defaultSessionTouchInterval,
+	}
 	if err := repo.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
@@ -83,6 +118,18 @@ func (r *Repository) Close() {
 
 func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
+}
+
+func (r *Repository) Stats() PoolStats {
+	stats := r.pool.Stat()
+
+	return PoolStats{
+		MaxConns:          stats.MaxConns(),
+		TotalConns:        stats.TotalConns(),
+		AcquiredConns:     stats.AcquiredConns(),
+		IdleConns:         stats.IdleConns(),
+		EmptyAcquireCount: stats.EmptyAcquireCount(),
+	}
 }
 
 func (r *Repository) GetUserByUsername(ctx context.Context, username string) (models.User, error) {
@@ -151,7 +198,15 @@ func (r *Repository) GetAuthContextBySessionAndAppKey(ctx context.Context, sessi
 	}
 	defer conn.Release()
 
-	authContext, err := scanAuthContext(conn.QueryRow(ctx, stmtGetAuthContextBySessionAndApp, sessionUUID, apiKey))
+	authContext, err := scanAuthContext(
+		conn.QueryRow(
+			ctx,
+			stmtGetAuthContextBySessionAndApp,
+			sessionUUID,
+			apiKey,
+			int32(max(1, int(r.sessionTouchInterval/time.Second))),
+		),
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.AuthContext{}, ErrSessionNotFound
@@ -226,8 +281,8 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 			RETURNING id, user_id, app_id, session_uuid::text, last_active, created_at
 		`,
 		stmtGetAuthContextBySessionAndApp: `
-			WITH matched AS (
-				SELECT
+				WITH matched AS (
+					SELECT
 					u.id AS user_id,
 					u.username,
 					u.password_hash,
@@ -238,28 +293,30 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 					a.name AS app_name,
 					a.api_key,
 					a.active AS app_active,
-					a.created_at AS app_created_at,
-					s.id AS session_id,
-					s.user_id AS session_user_id,
-					s.app_id AS session_app_id,
-					s.session_uuid::text AS session_uuid,
-					s.created_at AS session_created_at
-				FROM sessions s
-				JOIN users u ON u.id = s.user_id
-				JOIN apps a ON a.id = s.app_id
-				WHERE s.session_uuid = $1::uuid
-				  AND a.api_key = $2
-				  AND u.active = true
-				  AND a.active = true
-			),
-			touched AS (
-				UPDATE sessions s
-				SET last_active = now()
-				FROM matched m
-				WHERE s.id = m.session_id
-				RETURNING s.id, s.last_active
-			)
-			SELECT
+						a.created_at AS app_created_at,
+						s.id AS session_id,
+						s.user_id AS session_user_id,
+						s.app_id AS session_app_id,
+						s.session_uuid::text AS session_uuid,
+						s.last_active AS session_last_active,
+						s.created_at AS session_created_at
+					FROM sessions s
+					JOIN users u ON u.id = s.user_id
+					JOIN apps a ON a.id = s.app_id
+					WHERE s.session_uuid = $1::uuid
+					  AND a.api_key = $2
+					  AND u.active = true
+					  AND a.active = true
+				),
+				touched AS (
+					UPDATE sessions s
+					SET last_active = now()
+					FROM matched m
+					WHERE s.id = m.session_id
+					  AND s.last_active < now() - make_interval(secs => $3::int)
+					RETURNING s.id, s.last_active
+				)
+				SELECT
 				m.user_id,
 				m.username,
 				m.password_hash,
@@ -272,14 +329,14 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 				m.app_active,
 				m.app_created_at,
 				m.session_id,
-				m.session_user_id,
-				m.session_app_id,
-				m.session_uuid,
-				t.last_active,
-				m.session_created_at
-			FROM matched m
-			JOIN touched t ON t.id = m.session_id
-		`,
+					m.session_user_id,
+					m.session_app_id,
+					m.session_uuid,
+					COALESCE(t.last_active, m.session_last_active),
+					m.session_created_at
+				FROM matched m
+				LEFT JOIN touched t ON t.id = m.session_id
+			`,
 		stmtDeleteSessionByID: `
 			DELETE FROM sessions
 			WHERE id = $1
