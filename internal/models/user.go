@@ -60,3 +60,11 @@ type CreateUserResponse struct {
 type ValidateResponse struct {
 	Valid bool `json:"valid"`
 }
+
+type UserResponse struct {
+	ID        int32     `json:"id"`
+	Username  string    `json:"username"`
+	IsAdmin   bool      `json:"is_admin"`
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+}

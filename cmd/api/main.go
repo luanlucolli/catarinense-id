@@ -32,7 +32,9 @@ func main() {
 	}
 	gin.SetMode(ginMode)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	startupTimeout := parsePositiveDurationEnv("DATABASE_STARTUP_TIMEOUT", 40*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), startupTimeout)
 	defer cancel()
 
 	repo, err := database.NewRepository(ctx, databaseURL)
@@ -145,6 +147,7 @@ func registerRoutes(router *gin.Engine, handler *handlers.Handler, authMiddlewar
 	protected := router.Group("/")
 	protected.Use(authMiddleware.RequireAuth())
 	protected.GET("/validate", handler.Validate)
+	protected.GET("/me", handler.Me)
 	protected.POST("/logout", handler.Logout)
 
 	admin := router.Group("/admin")

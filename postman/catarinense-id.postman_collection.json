@@ -123,6 +123,33 @@
       "response": []
     },
     {
+      "name": "Get Current User (Me)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{sessionUuid}}"
+          },
+          {
+            "key": "X-App-Key",
+            "value": "{{appKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "me"
+          ]
+        },
+        "description": "Retorna os dados do usuario autenticado."
+      },
+      "response": []
+    },
+    {
       "name": "Logout",
       "event": [
         {

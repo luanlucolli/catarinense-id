@@ -98,6 +98,30 @@ func (h *Handler) Validate(c *gin.Context) {
 	c.JSON(http.StatusOK, models.ValidateResponse{Valid: true})
 }
 
+func (h *Handler) Me(c *gin.Context) {
+	value, exists := c.Get(middleware.ContextUserKey)
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "usuário autenticado ausente no contexto"})
+		return
+	}
+
+	user, ok := value.(models.User)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "falha ao interpretar usuário autenticado do contexto"})
+		return
+	}
+
+	response := models.UserResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		IsAdmin:   user.IsAdmin,
+		Active:    user.Active,
+		CreatedAt: user.CreatedAt,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *Handler) Logout(c *gin.Context) {
 	value, exists := c.Get(middleware.ContextSessionKey)
 	if !exists {
