@@ -75,7 +75,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"123456\"\n}",
+          "raw": "{\n  \"email\": \"admin@catarinense.local\",\n  \"password\": \"123456\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -91,7 +91,7 @@
             "login"
           ]
         },
-        "description": "Autentica um usuário com base em username, password e X-App-Key."
+        "description": "Autentica um usuário com base em email, password e X-App-Key."
       },
       "response": []
     },
@@ -211,7 +211,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"novo.usuario\",\n  \"password\": \"123456\",\n  \"is_admin\": false\n}",
+          "raw": "{\n  \"email\": \"novo.usuario@catarinense.local\",\n  \"password\": \"123456\",\n  \"is_admin\": false\n}",
           "options": {
             "raw": {
               "language": "json"

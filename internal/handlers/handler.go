@@ -48,20 +48,20 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	username := strings.TrimSpace(request.Username)
-	if username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username é obrigatório"})
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email é obrigatório"})
 		return
 	}
 
-	user, err := h.store.GetUserByUsername(c.Request.Context(), username)
+	user, err := h.store.GetUserByEmail(c.Request.Context(), email)
 	if err != nil {
 		if errors.Is(err, database.ErrUserNotFound) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
 			return
 		}
 
-		log.Printf("erro ao buscar usuário %q: %v", username, err)
+		log.Printf("erro ao buscar usuário por email %q: %v", email, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao buscar usuário"})
 		return
 	}
@@ -113,7 +113,7 @@ func (h *Handler) Me(c *gin.Context) {
 
 	response := models.UserResponse{
 		ID:        user.ID,
-		Username:  user.Username,
+		Email:     user.Email,
 		IsAdmin:   user.IsAdmin,
 		Active:    user.Active,
 		CreatedAt: user.CreatedAt,
@@ -156,39 +156,39 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	username := strings.TrimSpace(request.Username)
-	if username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username é obrigatório"})
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email é obrigatório"})
 		return
 	}
 
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
 	if err != nil {
-		log.Printf("erro ao gerar hash da senha para username=%q: %v", username, err)
+		log.Printf("erro ao gerar hash da senha para email=%q: %v", email, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao gerar hash da senha"})
 		return
 	}
 
 	user, err := h.store.CreateUser(c.Request.Context(), database.CreateUserParams{
-		Username:     username,
+		Email:        email,
 		PasswordHash: string(passwordHash),
 		IsAdmin:      request.IsAdmin,
 	})
 	if err != nil {
 		if errors.Is(err, database.ErrDuplicateUser) {
-			c.JSON(http.StatusConflict, gin.H{"error": "username já cadastrado"})
+			c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
 			return
 		}
 
-		log.Printf("erro ao criar usuário %q: %v", username, err)
+		log.Printf("erro ao criar usuário %q: %v", email, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao criar usuário"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, models.CreateUserResponse{
-		ID:       user.ID,
-		Username: user.Username,
-		IsAdmin:  user.IsAdmin,
-		Active:   user.Active,
+		ID:      user.ID,
+		Email:   user.Email,
+		IsAdmin: user.IsAdmin,
+		Active:  user.Active,
 	})
 }

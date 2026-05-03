@@ -4,7 +4,7 @@ import "time"
 
 type User struct {
 	ID           int32     `json:"id"`
-	Username     string    `json:"username"`
+	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	IsAdmin      bool      `json:"is_admin"`
 	Active       bool      `json:"active"`
@@ -35,7 +35,7 @@ type AuthContext struct {
 }
 
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -45,16 +45,16 @@ type LoginResponse struct {
 }
 
 type CreateUserRequest struct {
-	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 	IsAdmin  bool   `json:"is_admin"`
 }
 
 type CreateUserResponse struct {
-	ID       int32  `json:"id"`
-	Username string `json:"username"`
-	IsAdmin  bool   `json:"is_admin"`
-	Active   bool   `json:"active"`
+	ID      int32  `json:"id"`
+	Email   string `json:"email"`
+	IsAdmin bool   `json:"is_admin"`
+	Active  bool   `json:"active"`
 }
 
 type ValidateResponse struct {
@@ -63,7 +63,7 @@ type ValidateResponse struct {
 
 type UserResponse struct {
 	ID        int32     `json:"id"`
-	Username  string    `json:"username"`
+	Email     string    `json:"email"`
 	IsAdmin   bool      `json:"is_admin"`
 	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"created_at"`

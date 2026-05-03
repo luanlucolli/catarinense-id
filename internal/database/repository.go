@@ -21,7 +21,7 @@ var (
 )
 
 const (
-	stmtGetUserByUsername             = "get_user_by_username"
+	stmtGetUserByEmail                = "get_user_by_email"
 	stmtGetActiveAppByAPIKey          = "get_active_app_by_api_key"
 	stmtUpsertSession                 = "upsert_session"
 	stmtGetAuthContextBySessionAndApp = "get_auth_context_by_session_and_app"
@@ -40,7 +40,7 @@ const (
 )
 
 type UserStore interface {
-	GetUserByUsername(ctx context.Context, username string) (models.User, error)
+	GetUserByEmail(ctx context.Context, email string) (models.User, error)
 	GetActiveAppByAPIKey(ctx context.Context, apiKey string) (models.App, error)
 	UpsertSession(ctx context.Context, params UpsertSessionParams) (models.Session, error)
 	GetAuthContextBySessionAndAppKey(ctx context.Context, sessionUUID, apiKey string) (models.AuthContext, error)
@@ -55,7 +55,7 @@ type UpsertSessionParams struct {
 }
 
 type CreateUserParams struct {
-	Username     string
+	Email        string
 	PasswordHash string
 	IsAdmin      bool
 }
@@ -129,20 +129,20 @@ func (r *Repository) Stats() PoolStats {
 	}
 }
 
-func (r *Repository) GetUserByUsername(ctx context.Context, username string) (models.User, error) {
+func (r *Repository) GetUserByEmail(ctx context.Context, email string) (models.User, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return models.User{}, fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
-	user, err := scanUser(conn.QueryRow(ctx, stmtGetUserByUsername, username))
+	user, err := scanUser(conn.QueryRow(ctx, stmtGetUserByEmail, email))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.User{}, ErrUserNotFound
 		}
 
-		return models.User{}, fmt.Errorf("query user by username: %w", err)
+		return models.User{}, fmt.Errorf("query user by email: %w", err)
 	}
 
 	return user, nil
@@ -240,7 +240,7 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (m
 	}
 	defer conn.Release()
 
-	user, err := scanUser(conn.QueryRow(ctx, stmtCreateUser, params.Username, params.PasswordHash, params.IsAdmin))
+	user, err := scanUser(conn.QueryRow(ctx, stmtCreateUser, params.Email, params.PasswordHash, params.IsAdmin))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -255,10 +255,10 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (m
 
 func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 	statements := map[string]string{
-		stmtGetUserByUsername: `
-			SELECT id, username, password_hash, is_admin, active, created_at
+		stmtGetUserByEmail: `
+			SELECT id, email, password_hash, is_admin, active, created_at
 			FROM users
-			WHERE username = $1
+			WHERE email = $1
 		`,
 		stmtGetActiveAppByAPIKey: `
 			SELECT id, name, api_key, active, created_at
@@ -280,7 +280,7 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 				WITH matched AS (
 					SELECT
 					u.id AS user_id,
-					u.username,
+					u.email,
 					u.password_hash,
 					u.is_admin,
 					u.active AS user_active,
@@ -314,7 +314,7 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 				)
 				SELECT
 				m.user_id,
-				m.username,
+				m.email,
 				m.password_hash,
 				m.is_admin,
 				m.user_active,
@@ -338,9 +338,9 @@ func prepareStatements(ctx context.Context, conn *pgx.Conn) error {
 			WHERE id = $1
 		`,
 		stmtCreateUser: `
-			INSERT INTO users (username, password_hash, is_admin)
+			INSERT INTO users (email, password_hash, is_admin)
 			VALUES ($1, $2, $3)
-			RETURNING id, username, password_hash, is_admin, active, created_at
+			RETURNING id, email, password_hash, is_admin, active, created_at
 		`,
 	}
 
@@ -358,7 +358,7 @@ func scanUser(row pgx.Row) (models.User, error) {
 
 	if err := row.Scan(
 		&user.ID,
-		&user.Username,
+		&user.Email,
 		&user.PasswordHash,
 		&user.IsAdmin,
 		&user.Active,
@@ -408,7 +408,7 @@ func scanAuthContext(row pgx.Row) (models.AuthContext, error) {
 
 	if err := row.Scan(
 		&authContext.User.ID,
-		&authContext.User.Username,
+		&authContext.User.Email,
 		&authContext.User.PasswordHash,
 		&authContext.User.IsAdmin,
 		&authContext.User.Active,
